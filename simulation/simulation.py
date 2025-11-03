@@ -1,21 +1,28 @@
 """
 FEniCS program: Phase-field model of lithium dendrite growth.
+  Parallel version
 
   Based in the article of Hong and Viswanathan:
   https://doi.org/10.1021/acsenergylett.8b01009
 
 ------------------------------------------------------------------
   rbkrgb                                                   2020
+  DrtSinX98                                                2026
 ------------------------------------------------------------------
 """
 
 from fenics import *
+from dolfin import MPI
 from datetime import datetime
+import os
 
+# Paralell settings
+comm = MPI.comm_world
+rank = MPI.rank(comm)
 
 # Start message
-print("Starting 01_dend_simulation.py at ", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
-
+if rank == 0:
+    print("Starting simulation at ", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
 
 """
 SELECT SIMULATION  0..2
@@ -194,8 +201,19 @@ J = derivative(F,u)
 SOLVE AND SAVE SOLUTIONS
 """
 
+# Create the save directory if it doesn't exist
+if rank == 0:
+    os.makedirs(f"saved/sim{n_sim+1}", exist_ok=True)
+# All processes wait here until rank 0 is done
+if comm is not None:
+    comm.Barrier()
+
 # Create progress bar
-progress = Progress('Time-stepping', num_steps)
+if rank == 0:
+    progress = Progress('Time-stepping', num_steps)
+else:
+    # Set log level to ERROR for other processes to minimize spam
+    set_log_level(LogLevel.ERROR)
 
 # Time step
 for n in range(num_steps):
@@ -209,26 +227,30 @@ for n in range(num_steps):
     # Update previous solution
     u_n.assign(u)
 
-    # Timestamp
-    print("step = ", n, "timestamp =", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
+    if rank == 0:
+        # Timestamp
+        print("step = ", n, "timestamp =", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
 
     # Save solution each 5 seconds of simulation
     if (t % 5.0 < 0.001 or t % 5.0 > 4.999):
         fsolution=f"saved/sim{n_sim+1}/u_t{round(float(t))}.xml"
         File(fsolution) << u
 
-        # Timestamp
-        print("Solution ", fsolution, " saved at ", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
+        if rank == 0:
+            # Timestamp
+            print("Solution saved to ", fsolution, " at time t=", t, " at ", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
 
     # Update progress bar
-    set_log_level(LogLevel.PROGRESS)
-    progress+=1
-    set_log_level(LogLevel.ERROR)
+    if rank == 0:
+        set_log_level(LogLevel.PROGRESS)
+        progress+=1
+        set_log_level(LogLevel.ERROR) # Set back to ERROR to avoid solver spam
+
 
 # Save last solution
 fsolution=f"saved/sim{n_sim+1}/u_t{round(float(t))}_final.xml"
 File(fsolution) << u
 
-
 # End message
-print("Completed at ", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
+if rank == 0:
+    print("Completed at ", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
