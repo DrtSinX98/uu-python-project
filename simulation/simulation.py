@@ -223,7 +223,7 @@ for n in range(num_envsteps):
 
 
     # Time step
-    for n in range(num_steps):
+    for i in range(num_steps):
 
     # Update time
         t+=dt
