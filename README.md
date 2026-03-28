@@ -10,7 +10,7 @@ The primary objective is to reduce wall-clock time while maintaining the physica
 ## Key Features
 * **Massively Parallelized Solvers:** Migrating from single-threaded execution to parallel processing using `mpi4py` (Message Passing Interface).
 * **Domain Decomposition:** Efficient splitting of the simulation grid across multiple CPU cores.
-* **Electrochemical Coupling:** Solves the evolution of the order parameter ($\phi$) coupled with the concentration field ($c$) and electrostatic potential ($\psi$).
+* **Electrochemical Coupling:** Solves the evolution of the order parameter ($\xi$) coupled with the concentration field ($c$) and electrostatic potential ($\phi$).
 * **Performance Benchmarking:** Includes scripts to analyze scaling efficiency (Strong vs. Weak scaling).
 
 ## Tech Stack
