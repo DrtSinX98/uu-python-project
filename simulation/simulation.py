@@ -22,6 +22,7 @@ import numpy as np
 # Paralell settings
 comm = MPI.comm_world
 rank = MPI.rank(comm)
+size = comm.Get_size()
 
 # Start message
 if rank == 0:
@@ -202,6 +203,13 @@ J = derivative(F,u)
 SOLVE AND SAVE SOLUTIONS
 """
 
+# Create progress bar
+if rank == 0:
+    progress = Progress('Time-stepping', num_envsteps)
+else:
+    # Set log level to ERROR for other processes to minimize spam
+    set_log_level(LogLevel.ERROR)
+
 for n in range(num_envsteps):
 
     phie=Voltrange[n] # the new action (control input).
@@ -216,6 +224,8 @@ for n in range(num_envsteps):
     # Time stamp (only on rank 0)
     if rank == 0:
         print("step = ", n, "timestamp =", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
+        print(f"Solving nonlinear variational problem with {size} processes.")
+
 
     # Time step
     for n in range(num_steps):
@@ -229,8 +239,11 @@ for n in range(num_envsteps):
         # Update previous solution
         u_n.assign(u)
 
-        if rank == 0:
-            set_log_level(LogLevel.INFO)
+    # Update progress bar
+    if rank == 0:
+        set_log_level(LogLevel.PROGRESS)
+        progress+=1
+        set_log_level(LogLevel.ERROR)
 
 
     # Save u (Parallel-safe HDF5)
@@ -239,9 +252,6 @@ for n in range(num_envsteps):
         output_file.write(u, "solution")
         output_file.close()
 
-    # End message
-    if rank == 0:
-        print("Completed one step at ", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
 
 # End message
 if rank == 0:
