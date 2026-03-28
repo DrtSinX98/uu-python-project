@@ -4,6 +4,9 @@ FEniCS program: Phase-field model of lithium dendrite growth.
 
   Based in the article of Hong and Viswanathan:
   https://doi.org/10.1021/acsenergylett.8b01009
+  Modified as per the article by Taghavian, et. al.
+  https://doi.org/10.1038/s41524-025-01735-x
+
 
 ------------------------------------------------------------------
   rbkrgb                                                   2020
@@ -14,7 +17,7 @@ FEniCS program: Phase-field model of lithium dendrite growth.
 from fenics import *
 from dolfin import MPI
 from datetime import datetime
-import os
+import numpy as np
 
 # Paralell settings
 comm = MPI.comm_world
@@ -40,25 +43,22 @@ lox= 200
 loy= 100
 nx, ny = 400, 200
 
-# Applied voltage
-phie = -0.45
-
 # Normalized Parameters 
-L = Constant(6.25)
-kappa = Constant(0.3)
-Ls = Constant(0.001)
-alpha = Constant(0.5)
-AA = Constant(38.69)   # nF/RT
-W = Constant(2.4)
-es = Constant(-13.8)
-el = Constant(2.631)
-A = Constant(1.0)      # R*T/R*T
-c0 = Constant(1.0/14.89)
-dv = Constant(5.5)     # Csm/Clm
-M0 = Constant(317.9)
-S1 = Constant(1000000)
-S2 = Constant(1.19)
-ft2 = Constant(0.0074)
+L = Constant(6.25)          #L_sigma
+kappa = Constant(0.3)       #kappa
+Ls = Constant(0.001)        #L_eta
+alpha = Constant(0.5)       #alpha
+AA = Constant(38.69)        #nF/RT
+W = Constant(2.4)           #W
+es = Constant(-13.8)        #e^s
+el = Constant(2.631)        #e^l
+A = Constant(1.0)           #R*T/R*T
+c0 = Constant(1.0/14.89)    #c_0
+dv = Constant(5.5)         #Csm/Clm
+M0 = Constant(317.9)       #D^l                               
+S1 = Constant(1000000)      #sigma^s                             
+S2 = Constant(1.19)        #sigma^l                        
+ft2 = Constant(0.0074)      #nFCsm
 
 
 
@@ -120,13 +120,6 @@ bc_xi2 = DirichletBC(V.sub(0), Constant(0.0), boundaryL)
 # Boundary conditions for mu
 bc_c2 = DirichletBC(V.sub(1), Constant(0.0), boundaryL)
 
-# Boundary conditions for phi
-bc_phi1 = DirichletBC(V.sub(2), Constant(phie), boundary0)
-bc_phi2 = DirichletBC(V.sub(2), Constant(0.0), boundaryL)
-
-# Gather all boundary conditions in a variable
-bcs = [bc_xi1, bc_xi2, bc_c2, bc_phi1, bc_phi2 ] # Dirichlet
-
 
 
 """
@@ -174,12 +167,20 @@ def Le1(_xi):
 
 
 # Numerical Parameters (time for evolution)
+Voltrange=[-0.45]*2750 # (-) plating, (+) stripping.
+num_envsteps=len(Voltrange)
 t = 0.0
-Tf = 108.0
+Tfin=0.02 # the time length of each step
+Tf = Tfin
 dt = 0.02
-num_steps = int(Tf/dt)
+num_steps = int(Tf/dt) # This will be 1
 k = Constant(dt)
 
+# These arrays are now only needed on rank 0 for saving
+if rank == 0:
+    totaltime=np.zeros((1,num_envsteps))
+    totaltime[0,:]=np.arange(0,num_envsteps*Tfin,Tfin)
+    Taxis=totaltime[0,:]
 
 # Define variational problem
 F1 = (xi-xi_n)/k*v_1*dx + L*kappa*dot(grad(xi),grad(v_1))*dx + L*dg(xi)*v_1*dx + Ls*(exp(phi*AA/Constant(2.0))-Constant(14.89)*cl(w)*(Constant(1.0)-h(xi))*exp(-phi*AA/Constant(2.0)))*dh(xi)*v_1*dx
@@ -201,55 +202,46 @@ J = derivative(F,u)
 SOLVE AND SAVE SOLUTIONS
 """
 
-# Create the save directory if it doesn't exist
-if rank == 0:
-    os.makedirs(f"saved/sim{n_sim+1}", exist_ok=True)
-# All processes wait here until rank 0 is done
-if comm is not None:
-    comm.Barrier()
+for n in range(num_envsteps):
 
-# Create progress bar
-if rank == 0:
-    progress = Progress('Time-stepping', num_steps)
-else:
-    # Set log level to ERROR for other processes to minimize spam
-    set_log_level(LogLevel.ERROR)
+    phie=Voltrange[n] # the new action (control input).
 
-# Time step
-for n in range(num_steps):
+    # Boundary conditions for phi
+    bc_phi1 = DirichletBC(V.sub(2), Constant(phie), boundary0)
+    bc_phi2 = DirichletBC(V.sub(2), Constant(0.0), boundaryL)
 
-    # Update time
-    t+=dt
+    # Gather all boundary conditions in a variable
+    bcs = [bc_xi1, bc_xi2, bc_c2, bc_phi1, bc_phi2 ] # Dirichlet
 
-    # Solve problem
-    solve(F == 0, u, bcs, J=J, solver_parameters={"newton_solver":{"absolute_tolerance":1.0e-6, "relative_tolerance":1.0e-6, "maximum_iterations":100}})
-
-    # Update previous solution
-    u_n.assign(u)
-
+    # Time stamp (only on rank 0)
     if rank == 0:
-        # Timestamp
         print("step = ", n, "timestamp =", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
 
-    # Save solution each 5 seconds of simulation
-    if (t % 5.0 < 0.001 or t % 5.0 > 4.999):
-        fsolution=f"saved/sim{n_sim+1}/u_t{round(float(t))}.xml"
-        File(fsolution) << u
+    # Time step
+    for n in range(num_steps):
+
+    # Update time
+        t+=dt
+
+        # Solve problem
+        solve(F == 0, u, bcs, J=J, solver_parameters={"newton_solver":{"absolute_tolerance":1.0e-6, "relative_tolerance":1.0e-6, "maximum_iterations":100}})
+
+        # Update previous solution
+        u_n.assign(u)
 
         if rank == 0:
-            # Timestamp
-            print("Solution saved to ", fsolution, " at time t=", t, " at ", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
+            set_log_level(LogLevel.INFO)
 
-    # Update progress bar
+
+    # Save u (Parallel-safe HDF5)
+    if (n==0 or n==int(round(num_envsteps/4)) or n==int(round(num_envsteps/2)) or n==int(round(num_envsteps*3/4)) or n==int(num_envsteps-1)):
+        output_file = HDF5File(mesh.mpi_comm(), f"u{n}.h5", "w")
+        output_file.write(u, "solution")
+        output_file.close()
+
+    # End message
     if rank == 0:
-        set_log_level(LogLevel.PROGRESS)
-        progress+=1
-        set_log_level(LogLevel.ERROR) # Set back to ERROR to avoid solver spam
-
-
-# Save last solution
-fsolution=f"saved/sim{n_sim+1}/u_t{round(float(t))}_final.xml"
-File(fsolution) << u
+        print("Completed one step at ", datetime.fromtimestamp(datetime.timestamp(datetime.now())))
 
 # End message
 if rank == 0:
