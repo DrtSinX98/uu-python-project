@@ -177,11 +177,6 @@ dt = 0.02
 num_steps = int(Tf/dt) # This will be 1
 k = Constant(dt)
 
-# These arrays are now only needed on rank 0 for saving
-if rank == 0:
-    totaltime=np.zeros((1,num_envsteps))
-    totaltime[0,:]=np.arange(0,num_envsteps*Tfin,Tfin)
-    Taxis=totaltime[0,:]
 
 # Define variational problem
 F1 = (xi-xi_n)/k*v_1*dx + L*kappa*dot(grad(xi),grad(v_1))*dx + L*dg(xi)*v_1*dx + Ls*(exp(phi*AA/Constant(2.0))-Constant(14.89)*cl(w)*(Constant(1.0)-h(xi))*exp(-phi*AA/Constant(2.0)))*dh(xi)*v_1*dx
